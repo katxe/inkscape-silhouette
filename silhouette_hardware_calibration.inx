@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<inkscape-extension translationdomain="inkscape-silhouette" xmlns="http://www.inkscape.org/namespace/inkscape/extension">
+  <name>Hardware Calibration Wizard...</name>
+  <id>com.github.fablabnbg.inkscape-silhouette.hardware-calibration</id>
+  <dependency type="executable" location="inx">silhouette_hardware_calibration.py</dependency>
+  <param name="action" type="optiongroup" appearance="radio" gui-text="Action">
+    <option value="generate">Generate Test Calibration Pattern (Print + Cut)</option>
+    <option value="measure">Measure Post-Cut Scan Offset...</option>
+  </param>
+  <param name="margin" type="float" min="2.0" max="50.0" gui-text="Corner marker margin [mm]">6.5</param>
+  <param name="square_size" type="float" min="5.0" max="50.0" gui-text="Target square size [mm]">15.0</param>
+  <label>Generates a printable/cuttable test sheet to automatically measure your combined scanner bezel and Silhouette mat offset from a post-cut scan.</label>
+  <effect needs-live-preview="false">
+    <object-type>all</object-type>
+    <effects-menu>
+      <submenu name="Export"/>
+    </effects-menu>
+  </effect>
+  <script>
+    <command location="inx" interpreter="python">silhouette_hardware_calibration.py</command>
+  </script>
+</inkscape-extension>
