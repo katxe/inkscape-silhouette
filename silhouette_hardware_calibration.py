@@ -397,7 +397,8 @@ class HardwareCalibrationWizard:
         ).pack(anchor="w", pady=(0, 14))
         btn_row = ttk.Frame(p_gen)
         btn_row.pack(anchor="w")
-        ttk.Button(btn_row, text="Generate Test Pattern in SVG", command=self._generate_pattern).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(btn_row, text="Generate & Close (to Print in Inkscape)", command=self._generate_and_close).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(btn_row, text="Generate Only", command=self._generate_pattern).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(btn_row, text="Save Printable SVG Copy...", command=self._save_svg_copy).pack(side=tk.LEFT)
         self.pages.append(p_gen)
 
@@ -422,23 +423,20 @@ class HardwareCalibrationWizard:
             p_cut,
             text=(
                 "Stick the printed cardstock into the top-left (0, 0) corner of your Silhouette cutting mat "
-                "and load the mat. Clicking below hides all layers except the cut square and triggers the "
-                "Silhouette cut automatically."
+                "and load the mat. Click below to hide all layers except the cut square and close this wizard "
+                "so you can run Extensions -> Export -> Send to Silhouette with your preferred blade settings."
             ),
             wraplength=640,
         ).pack(anchor="w", pady=(0, 14))
         cut_opts = ttk.Frame(p_cut)
         cut_opts.pack(anchor="w")
-        ttk.Label(cut_opts, text="Cutting Mat:").pack(side=tk.LEFT, padx=(0, 6))
-        self.mat_var = tk.StringVar(value="cameo_12x12")
-        ttk.Combobox(
+        ttk.Button(
             cut_opts,
-            textvariable=self.mat_var,
-            values=("cameo_12x12", "cameo_12x24", "portrait_8x12", "portrait_8_5x12", "no_mat"),
-            state="readonly",
-            width=16,
+            text="Prepare Cut Layer & Close (for Send to Silhouette)",
+            command=self._prepare_cut_and_close,
         ).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(cut_opts, text="Cut Test Square on Silhouette", command=self._run_silhouette_cut).pack(side=tk.LEFT)
+        self.mat_var = tk.StringVar(value="cameo_12x12")
+        ttk.Button(cut_opts, text="Quick Auto-Cut Now", command=self._run_silhouette_cut).pack(side=tk.LEFT)
         self.pages.append(p_cut)
 
         # Page: Post-Cut Scan & Offset Calibration
@@ -501,6 +499,10 @@ class HardwareCalibrationWizard:
         )
         self.status_var.set("Test calibration pattern generated in SVG. Ready to print (or save a copy).")
 
+    def _generate_and_close(self):
+        self._generate_pattern()
+        self.root.destroy()
+
     def _save_svg_copy(self):
         path = self.filedialog.asksaveasfilename(
             title="Save Printable Calibration SVG",
@@ -520,7 +522,8 @@ class HardwareCalibrationWizard:
             return
         existing = Calibration.load_calibration(self.svg)
         self.user_config = Calibration.load_user_config()
-        app = CalibrationApp(markers, existing, self.user_config, parent=self.root)
+        cut_paths_mm = Calibration.extract_preview_cut_paths_mm(self.svg)
+        app = CalibrationApp(markers, existing, self.user_config, parent=self.root, cut_paths_mm=cut_paths_mm)
         result = app.run()
         if result is None:
             return
@@ -539,6 +542,22 @@ class HardwareCalibrationWizard:
         self.status_var.set(
             f"Scanner calibrated (RMS={result['rms_error_mm']:.3f} mm, rot={self.calib_rotation_deg:+.2f} deg). Ready to cut!"
         )
+
+    def _prepare_cut_and_close(self):
+        """Hide all layers except the cut square layer and close wizard for Send to Silhouette."""
+        cut_layer_found = False
+        for child in self.svg:
+            if isinstance(child, Group) or child.tag.endswith("}g"):
+                if child.get("id") == HardwareCalibration.HW_CUT_LAYER_ID:
+                    child.set("style", "display:inline")
+                    cut_layer_found = True
+                else:
+                    child.set("style", "display:none")
+
+        if not cut_layer_found:
+            self.messagebox.showwarning("Missing Cut Layer", "Generate the test pattern first before cutting.")
+            return
+        self.root.destroy()
 
     def _run_silhouette_cut(self):
         # Build a temporary copy of the SVG with all layers hidden except the cut layer
@@ -592,9 +611,25 @@ class HardwareCalibrationWizard:
         )
         app.run()
         self.user_config = Calibration.load_user_config()
-        self.status_var.set(
-            f"Current saved System Offset: X={self.user_config.get('offset_x_mm', 1.74):.2f} mm, Y={self.user_config.get('offset_y_mm', 2.43):.2f} mm"
-        )
+        new_ox = float(self.user_config.get("offset_x_mm", Calibration.DEFAULT_OFFSET_X_MM))
+        new_oy = float(self.user_config.get("offset_y_mm", Calibration.DEFAULT_OFFSET_Y_MM))
+
+        # Sync the newly measured hardware offset into the current SVG's calibration metadata
+        existing = Calibration.load_calibration(self.svg)
+        if existing is not None:
+            Calibration.save_calibration(
+                self.svg,
+                points=existing["points"],
+                model=existing["model"],
+                offset_x_mm=new_ox,
+                offset_y_mm=new_oy,
+                dpi_x=existing["scan_dpi_x"],
+                dpi_y=existing["scan_dpi_y"],
+                rms_error_mm=existing["rms_error_mm"],
+                active=True,
+            )
+
+        self.status_var.set(f"Current saved System Offset: X={new_ox:.2f} mm, Y={new_oy:.2f} mm")
 
     def run(self):
         self.root.mainloop()

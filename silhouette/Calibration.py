@@ -442,6 +442,53 @@ def warp_paths(paths, calib):
     return warped_paths
 
 
+def extract_preview_cut_paths_mm(svg):
+    """Extract flattened cut-layer polylines in mm for live overlay preview."""
+    from inkex import Group, PathElement, Rectangle, Circle, Ellipse, Line, Polyline, Polygon
+    from inkex.bezier import cspsubdiv
+
+    shape_types = (PathElement, Rectangle, Circle, Ellipse, Line, Polyline, Polygon)
+    paths_mm = []
+
+    def _walk(parent, visible=True):
+        for node in parent:
+            style = getattr(node, "style", None)
+            if style is not None:
+                if style.get("display", node.get("display", "inline")) == "none":
+                    continue
+                try:
+                    if float(style.get("opacity", node.get("opacity", 1.0))) == 0.0:
+                        continue
+                except (TypeError, ValueError):
+                    pass
+                vis = style.get("visibility", node.get("visibility", "inherit"))
+                node_vis = visible if vis == "inherit" else (vis not in ("hidden", "collapse"))
+            else:
+                node_vis = visible
+
+            if isinstance(node, Group):
+                if node.get("id") == CALIB_LAYER_ID:
+                    continue
+                label = (node.label or "").lower()
+                if any(skip in label for skip in ("cuttingmat", "regmark", "calibration", "print")):
+                    continue
+                _walk(node, node_vis)
+            elif isinstance(node, shape_types) and node_vis:
+                try:
+                    pe = node.to_path_element()
+                    csp = pe.path.transform(node.composed_transform()).to_superpath()
+                    cspsubdiv(csp, 0.5)
+                    for sub in csp:
+                        pts = [(svg_units_to_mm(svg, pt[1][0]), svg_units_to_mm(svg, pt[1][1])) for pt in sub]
+                        if len(pts) >= 2:
+                            paths_mm.append(pts)
+                except Exception:
+                    continue
+
+    _walk(svg, True)
+    return paths_mm
+
+
 def read_image_dpi(path, default_dpi=300.0):
     """Read (dpi_x, dpi_y) from image metadata or JFIF header."""
     from PIL import Image

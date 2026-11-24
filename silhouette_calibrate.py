@@ -20,7 +20,7 @@ from silhouette import Calibration
 class CalibrationApp:
     """Interactive tkinter + PIL window for aligning SVG markers to a scanned image."""
 
-    def __init__(self, svg_markers, existing_calib, user_config, parent=None):
+    def __init__(self, svg_markers, existing_calib, user_config, parent=None, cut_paths_mm=None):
         import tkinter as tk
         from tkinter import ttk, filedialog, messagebox
         from PIL import Image, ImageTk, ImageOps
@@ -37,6 +37,7 @@ class CalibrationApp:
         self.existing_calib = existing_calib
         self.user_config = user_config
         self.parent = parent
+        self.cut_paths_mm = cut_paths_mm or []
         self.result = None
 
         self.pil_image = None
@@ -83,7 +84,15 @@ class CalibrationApp:
             width=12,
         )
         model_cb.pack(side=tk.LEFT, padx=2)
-        model_cb.bind("<<ComboboxSelected>>", lambda _e: self._update_status())
+        model_cb.bind("<<ComboboxSelected>>", lambda _e: (self._redraw(), self._update_status()))
+
+        self.preview_cut_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            top,
+            text="Preview Cut Layer",
+            variable=self.preview_cut_var,
+            command=self._redraw,
+        ).pack(side=tk.LEFT, padx=(10, 4))
 
         # Canvas
         self.canvas = tk.Canvas(self.root, bg="#2b2b2b", highlightthickness=0)
@@ -111,8 +120,8 @@ class CalibrationApp:
         dpi_entry.pack(side=tk.LEFT, padx=2)
         dpi_entry.bind("<FocusOut>", lambda _e: self._update_status())
 
-        ox_default = (self.existing_calib or {}).get("offset_x_mm", self.user_config.get("offset_x_mm", 1.74))
-        oy_default = (self.existing_calib or {}).get("offset_y_mm", self.user_config.get("offset_y_mm", 2.43))
+        ox_default = self.user_config.get("offset_x_mm", (self.existing_calib or {}).get("offset_x_mm", 1.74))
+        oy_default = self.user_config.get("offset_y_mm", (self.existing_calib or {}).get("offset_y_mm", 2.43))
 
         ttk.Label(bottom, text="System Offset X (mm):").pack(side=tk.LEFT, padx=(10, 2))
         self.ox_var = tk.StringVar(value=f"{float(ox_default):.2f}")
@@ -329,6 +338,24 @@ class CalibrationApp:
             dx, dy = self._img_to_canvas(x0, y0)
             self.canvas.create_image(dx, dy, anchor="nw", image=self.tk_photo)
 
+        # Draw live warped cut-layer overlay on top of the scanned image
+        if self.preview_cut_var.get() and self.cut_paths_mm and len(self.scan_pts_px) >= 3:
+            try:
+                pairs = self._build_point_pairs()
+                model_name, model_data = Calibration.build_transform(pairs, model=self.model_var.get())
+                px_per_mm = self._get_dpi() / 25.4
+                for path in self.cut_paths_mm:
+                    arr = np.asarray(path, dtype=float)
+                    mapped_mm = Calibration.evaluate_transform(arr, model_name, model_data, 0.0, 0.0)
+                    coords = []
+                    for sx_mm, sy_mm in mapped_mm:
+                        cx, cy = self._img_to_canvas(sx_mm * px_per_mm, sy_mm * px_per_mm)
+                        coords.extend((cx, cy))
+                    if len(coords) >= 4:
+                        self.canvas.create_line(*coords, fill="#00ff44", width=2)
+            except Exception:
+                pass
+
         # Draw numbered crosshairs
         for m, (ix, iy) in zip(self.svg_markers, self.scan_pts_px):
             cx, cy = self._img_to_canvas(ix, iy)
@@ -413,8 +440,9 @@ class CalibrateFromScan(EffectExtension):
 
         existing = Calibration.load_calibration(self.svg)
         user_cfg = Calibration.load_user_config()
+        cut_paths_mm = Calibration.extract_preview_cut_paths_mm(self.svg)
 
-        app = CalibrationApp(markers, existing, user_cfg)
+        app = CalibrationApp(markers, existing, user_cfg, cut_paths_mm=cut_paths_mm)
         result = app.run()
         if result is None:
             return
