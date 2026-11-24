@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<inkscape-extension translationdomain="inkscape-silhouette" xmlns="http://www.inkscape.org/namespace/inkscape/extension">
+  <name>Place Calibration Markers</name>
+  <id>com.github.fablabnbg.inkscape-silhouette.place-calibration-markers</id>
+  <dependency type="executable" location="inx">silhouette_place_markers.py</dependency>
+  <param name="margin" type="float" min="2.0" max="100.0" gui-text="Margin from page edges [mm]">6.5</param>
+  <param name="diameter" type="float" min="1.0" max="15.0" gui-text="Marker diameter [mm]">2.5</param>
+  <param name="replace" type="bool" gui-text="Replace existing markers">true</param>
+  <label>Places tiny printable bullseye markers on a dedicated Calibration Markers layer. You can drag, delete, or Ctrl+D duplicate markers before printing; Send to Silhouette skips cutting this layer.</label>
+  <effect>
+    <object-type>all</object-type>
+    <effects-menu>
+      <submenu name="Export"/>
+    </effects-menu>
+  </effect>
+  <script>
+    <command location="inx" interpreter="python">silhouette_place_markers.py</command>
+  </script>
+</inkscape-extension>

@@ -54,6 +54,7 @@ from silhouette.Strategy import MatFree
 from silhouette.convert2dashes import convert2dash
 import silhouette.StrategyMinTraveling
 import silhouette.read_dump
+import silhouette.Calibration
 from silhouette.Geometry import dist_sq, XY_a
 
 # Temporary Monkey Backport Patches to support functions that exist only after v1.2
@@ -672,6 +673,9 @@ class SendtoSilhouette(EffectExtension):
                     my_transform = parent_transform @ node.transform
 
             if isinstance(node, Group):
+                if node.get("id") == silhouette.Calibration.CALIB_LAYER_ID:
+                    self.report("layer 'Calibration Markers' is a calibration layer - skipped", 'log')
+                    continue
                 # Check if layer name is referring to cutting mat, registration mark or print layer
                 if node.label:
                     if "cuttingmat" in node.label.lower():
@@ -679,6 +683,9 @@ class SendtoSilhouette(EffectExtension):
                         continue
                     if "regmark" in node.label.lower():
                         self.report(f"layer '{node.label}' is a registration mark layer - skipped", 'log')
+                        continue
+                    if "calibration" in node.label.lower():
+                        self.report(f"layer '{node.label}' is a calibration layer - skipped", 'log')
                         continue
                     if "print" in node.label.lower():
                         self.report(f"layer '{node.label}' is a print layer - skipped", 'log')
@@ -1123,6 +1130,17 @@ class SendtoSilhouette(EffectExtension):
         if self.options.tool == "autoblade":
             self.pen=False
             self.autoblade=True
+
+        # Apply active scanner calibration warp in memory without modifying SVG
+        calib = silhouette.Calibration.load_calibration(self.svg)
+        if calib is not None and self.paths:
+            self.paths = silhouette.Calibration.warp_paths(self.paths, calib)
+            self.report(
+                f"Applied scanner calibration ({calib['model']}, {len(calib['points'])} pts, "
+                f"offset=({calib['offset_x_mm']:.2f}, {calib['offset_y_mm']:.2f}) mm, "
+                f"rms={calib['rms_error_mm']:.3f} mm)",
+                'log',
+            )
 
         # Reorder paths (except in case of Z-order)
         if self.options.orient_paths != "natural":

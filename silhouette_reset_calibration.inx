@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<inkscape-extension translationdomain="inkscape-silhouette" xmlns="http://www.inkscape.org/namespace/inkscape/extension">
+  <name>Reset Calibration</name>
+  <id>com.github.fablabnbg.inkscape-silhouette.reset-calibration</id>
+  <dependency type="executable" location="inx">silhouette_reset_calibration.py</dependency>
+  <param name="remove_markers" type="bool" gui-text="Also delete Calibration Markers layer">false</param>
+  <label>Clears saved scanner calibration metadata from this SVG without modifying your artwork or cut layers.</label>
+  <effect>
+    <object-type>all</object-type>
+    <effects-menu>
+      <submenu name="Export"/>
+    </effects-menu>
+  </effect>
+  <script>
+    <command location="inx" interpreter="python">silhouette_reset_calibration.py</command>
+  </script>
+</inkscape-extension>
