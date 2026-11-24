@@ -20,10 +20,10 @@ from silhouette import Calibration
 class CalibrationApp:
     """Interactive tkinter + PIL window for aligning SVG markers to a scanned image."""
 
-    def __init__(self, svg_markers, existing_calib, user_config):
+    def __init__(self, svg_markers, existing_calib, user_config, parent=None):
         import tkinter as tk
         from tkinter import ttk, filedialog, messagebox
-        from PIL import Image, ImageTk
+        from PIL import Image, ImageTk, ImageOps
 
         self.tk = tk
         self.ttk = ttk
@@ -31,16 +31,17 @@ class CalibrationApp:
         self.messagebox = messagebox
         self.Image = Image
         self.ImageTk = ImageTk
+        self.ImageOps = ImageOps
 
         self.svg_markers = svg_markers
         self.existing_calib = existing_calib
         self.user_config = user_config
+        self.parent = parent
         self.result = None
 
         self.pil_image = None
         self.gray_array = None
         self.tk_photo = None
-        self.rotated_180 = False
         self.zoom = 1.0
         self.pan_x = 0.0
         self.pan_y = 0.0
@@ -50,9 +51,9 @@ class CalibrationApp:
         # Marker positions in image pixel coordinates
         self.scan_pts_px = []
 
-        self.root = tk.Tk()
+        self.root = tk.Toplevel(parent) if parent is not None else tk.Tk()
         self.root.title("Silhouette Scanner Calibration")
-        self.root.geometry("1100x800")
+        self.root.geometry("1120x800")
 
         self._build_ui()
 
@@ -63,10 +64,13 @@ class CalibrationApp:
         top = ttk.Frame(self.root, padding=6)
         top.pack(side=tk.TOP, fill=tk.X)
 
-        ttk.Button(top, text="Load / Replace Scan...", command=self._load_scan).pack(side=tk.LEFT, padx=4)
-        ttk.Button(top, text="Rotate 180", command=self._toggle_rotate).pack(side=tk.LEFT, padx=4)
-        ttk.Button(top, text="Auto-Detect Markers", command=self._autodetect).pack(side=tk.LEFT, padx=4)
-        ttk.Button(top, text="Fit View", command=self._fit_view).pack(side=tk.LEFT, padx=4)
+        ttk.Button(top, text="Load / Replace Scan...", command=self._load_scan).pack(side=tk.LEFT, padx=3)
+        ttk.Button(top, text="Rotate 90", command=self._rotate_90).pack(side=tk.LEFT, padx=3)
+        ttk.Button(top, text="Rotate 180", command=self._toggle_rotate).pack(side=tk.LEFT, padx=3)
+        ttk.Button(top, text="Mirror H", command=self._mirror_h).pack(side=tk.LEFT, padx=3)
+        ttk.Button(top, text="Mirror V", command=self._mirror_v).pack(side=tk.LEFT, padx=3)
+        ttk.Button(top, text="Auto-Detect", command=self._autodetect).pack(side=tk.LEFT, padx=3)
+        ttk.Button(top, text="Fit View", command=self._fit_view).pack(side=tk.LEFT, padx=3)
 
         ttk.Label(top, text="Model:").pack(side=tk.LEFT, padx=(12, 4))
         default_model = (self.existing_calib or {}).get("model", "homography")
@@ -171,15 +175,49 @@ class CalibrationApp:
         self._fit_view()
         self._update_status()
 
+    def _rotate_90(self):
+        if self.pil_image is None:
+            return
+        w, h = self.pil_image.size
+        self.pil_image = self.pil_image.transpose(self.Image.ROTATE_270)
+        self.gray_array = np.asarray(self.pil_image.convert("L"), dtype=float)
+        for pt in self.scan_pts_px:
+            old_x, old_y = pt[0], pt[1]
+            pt[0] = h - old_y
+            pt[1] = old_x
+        self._fit_view()
+        self._update_status()
+
     def _toggle_rotate(self):
         if self.pil_image is None:
             return
         self.pil_image = self.pil_image.rotate(180)
         self.gray_array = np.asarray(self.pil_image.convert("L"), dtype=float)
-        self.rotated_180 = not self.rotated_180
         w, h = self.pil_image.size
         for pt in self.scan_pts_px:
             pt[0] = w - pt[0]
+            pt[1] = h - pt[1]
+        self._redraw()
+        self._update_status()
+
+    def _mirror_h(self):
+        if self.pil_image is None:
+            return
+        self.pil_image = self.ImageOps.mirror(self.pil_image)
+        self.gray_array = np.asarray(self.pil_image.convert("L"), dtype=float)
+        w, _h = self.pil_image.size
+        for pt in self.scan_pts_px:
+            pt[0] = w - pt[0]
+        self._redraw()
+        self._update_status()
+
+    def _mirror_v(self):
+        if self.pil_image is None:
+            return
+        self.pil_image = self.ImageOps.flip(self.pil_image)
+        self.gray_array = np.asarray(self.pil_image.convert("L"), dtype=float)
+        _w, h = self.pil_image.size
+        for pt in self.scan_pts_px:
             pt[1] = h - pt[1]
         self._redraw()
         self._update_status()
@@ -189,8 +227,15 @@ class CalibrationApp:
             return
         dpi = self._get_dpi()
         search_r = max(25, int(round(dpi * 0.25)))
+        marker_d_px = max(6.0, 2.5 * dpi / 25.4)
         for pt in self.scan_pts_px:
-            cx, cy = Calibration.autodetect_marker_center(self.gray_array, pt[0], pt[1], search_radius_px=search_r)
+            cx, cy = Calibration.autodetect_marker_center(
+                self.gray_array,
+                pt[0],
+                pt[1],
+                search_radius_px=search_r,
+                marker_diameter_px=marker_d_px,
+            )
             pt[0], pt[1] = cx, cy
         self._redraw()
         self._update_status()
@@ -347,7 +392,12 @@ class CalibrationApp:
         self.root.destroy()
 
     def run(self):
-        self.root.mainloop()
+        if self.parent is not None:
+            self.root.transient(self.parent)
+            self.root.grab_set()
+            self.parent.wait_window(self.root)
+        else:
+            self.root.mainloop()
         return self.result
 
 
