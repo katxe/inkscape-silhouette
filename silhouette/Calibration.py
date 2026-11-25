@@ -114,9 +114,9 @@ def create_marker_group(svg, marker_id, cx_mm, cy_mm, diameter_mm=2.5):
     group.add(cross)
 
     label = TextElement()
-    label.set("x", str(cx + r_outer * 1.2))
-    label.set("y", str(cy - r_outer * 0.4))
-    label.set("style", f"font-size:{mm_to_svg_units(svg, 2.0)}px;fill:#000000;font-family:sans-serif;")
+    label.set("x", str(cx + mm_to_svg_units(svg, diameter_mm * 0.9)))
+    label.set("y", str(cy - mm_to_svg_units(svg, diameter_mm * 0.4)))
+    label.set("style", f"font-size:{mm_to_svg_units(svg, 1.8)}px;fill:#000000;font-family:sans-serif;")
     label.text = f"#{marker_id}"
     group.add(label)
 
@@ -442,6 +442,53 @@ def warp_paths(paths, calib):
     return warped_paths
 
 
+def extract_preview_cut_paths_mm(svg):
+    """Extract flattened cut-layer polylines in mm for live overlay preview."""
+    from inkex import Group, PathElement, Rectangle, Circle, Ellipse, Line, Polyline, Polygon
+    from inkex.bezier import cspsubdiv
+
+    shape_types = (PathElement, Rectangle, Circle, Ellipse, Line, Polyline, Polygon)
+    paths_mm = []
+
+    def _walk(parent, visible=True):
+        for node in parent:
+            style = getattr(node, "style", None)
+            if style is not None:
+                if style.get("display", node.get("display", "inline")) == "none":
+                    continue
+                try:
+                    if float(style.get("opacity", node.get("opacity", 1.0))) == 0.0:
+                        continue
+                except (TypeError, ValueError):
+                    pass
+                vis = style.get("visibility", node.get("visibility", "inherit"))
+                node_vis = visible if vis == "inherit" else (vis not in ("hidden", "collapse"))
+            else:
+                node_vis = visible
+
+            if isinstance(node, Group):
+                if node.get("id") == CALIB_LAYER_ID:
+                    continue
+                label = (node.label or "").lower()
+                if any(skip in label for skip in ("cuttingmat", "regmark", "calibration", "print")):
+                    continue
+                _walk(node, node_vis)
+            elif isinstance(node, shape_types) and node_vis:
+                try:
+                    pe = node.to_path_element()
+                    csp = pe.path.transform(node.composed_transform()).to_superpath()
+                    cspsubdiv(csp, 0.5)
+                    for sub in csp:
+                        pts = [(svg_units_to_mm(svg, pt[1][0]), svg_units_to_mm(svg, pt[1][1])) for pt in sub]
+                        if len(pts) >= 2:
+                            paths_mm.append(pts)
+                except Exception:
+                    continue
+
+    _walk(svg, True)
+    return paths_mm
+
+
 def read_image_dpi(path, default_dpi=300.0):
     """Read (dpi_x, dpi_y) from image metadata or JFIF header."""
     from PIL import Image
@@ -471,8 +518,25 @@ def read_image_dpi(path, default_dpi=300.0):
     return float(default_dpi), float(default_dpi)
 
 
-def autodetect_marker_center(gray, approx_x_px, approx_y_px, search_radius_px=45):
-    """Locate the sub-pixel dark centroid of a bullseye near (approx_x_px, approx_y_px)."""
+def compute_rotation_deg(points):
+    """Estimate overall sheet rotation angle in degrees (SVG -> scan) from point pairs."""
+    if not points or len(points) < 3:
+        return 0.0
+    src = np.array([[p["svg_x"], p["svg_y"]] for p in points], dtype=float)
+    dst = np.array([[p["scan_x"], p["scan_y"]] for p in points], dtype=float)
+    A = fit_affine(src, dst)
+    # Linear 2x2 part maps [dx, dy] -> [dx, dy] @ A[:2, :]
+    M = A[:2, :].T
+    angle_rad = np.arctan2(M[1, 0], M[0, 0])
+    return float(np.degrees(angle_rad))
+
+
+def autodetect_marker_center(gray, approx_x_px, approx_y_px, search_radius_px=45, marker_diameter_px=None):
+    """Locate the sub-pixel bullseye center near (approx_x_px, approx_y_px).
+
+    Uses a compact local darkness window around the strongest bullseye peak so
+    nearby text labels or page edges do not pull the centroid off-center.
+    """
     h, w = gray.shape
     cx0 = int(round(approx_x_px))
     cy0 = int(round(approx_y_px))
@@ -491,13 +555,50 @@ def autodetect_marker_center(gray, approx_x_px, approx_y_px, search_radius_px=45
     if peak < 25.0:
         return float(approx_x_px), float(approx_y_px)
 
-    mask = darkness >= (peak * 0.45)
-    weights = np.where(mask, darkness, 0.0)
-    total = float(weights.sum())
-    if total <= 0.0:
-        return float(approx_x_px), float(approx_y_px)
+    # Smooth slightly with a small box kernel matching the bullseye core to find the true peak
+    r_core = max(2, int(round((marker_diameter_px or 12.0) * 0.25)))
+    ph, pw = darkness.shape
+    if ph > 2 * r_core + 1 and pw > 2 * r_core + 1:
+        padded = np.pad(darkness, ((r_core, r_core), (r_core, r_core)), mode="edge")
+        integral = np.pad(padded, ((1, 0), (1, 0)), mode="constant").cumsum(axis=0).cumsum(axis=1)
+        k = 2 * r_core + 1
+        scores = (
+            integral[k:, k:]
+            - integral[:-k, k:]
+            - integral[k:, :-k]
+            + integral[:-k, :-k]
+        )
+        # Prefer peaks closer to the initial guess to ignore distant text labels
+        ys_s, xs_s = np.indices(scores.shape, dtype=float)
+        dist2 = (xs_s - (approx_x_px - x0)) ** 2 + (ys_s - (approx_y_px - y0)) ** 2
+        sigma2 = max(16.0, (search_radius_px * 0.6) ** 2)
+        weighted_scores = scores * np.exp(-0.5 * dist2 / sigma2)
+        best_flat = int(np.argmax(weighted_scores))
+        py_peak, px_peak = divmod(best_flat, pw)
+    else:
+        py_peak, px_peak = divmod(int(np.argmax(darkness)), pw)
 
-    ys, xs = np.indices(patch.shape, dtype=float)
-    cx = x0 + float((xs * weights).sum() / total)
-    cy = y0 + float((ys * weights).sum() / total)
-    return cx, cy
+    # Iteratively recenter a tight circular window around the bullseye for sub-pixel accuracy
+    tight_r = max(4, int(round((marker_diameter_px or 12.0) * 0.65)))
+    cx_local = float(px_peak)
+    cy_local = float(py_peak)
+    for _ in range(3):
+        tx0 = max(0, int(round(cx_local)) - tight_r)
+        tx1 = min(pw, int(round(cx_local)) + tight_r + 1)
+        ty0 = max(0, int(round(cy_local)) - tight_r)
+        ty1 = min(ph, int(round(cy_local)) + tight_r + 1)
+        sub = darkness[ty0:ty1, tx0:tx1]
+        sub_peak = float(sub.max()) if sub.size else 0.0
+        if sub_peak < 20.0:
+            break
+        ys, xs = np.indices(sub.shape, dtype=float)
+        rad2 = (xs + tx0 - cx_local) ** 2 + (ys + ty0 - cy_local) ** 2
+        mask = (sub >= sub_peak * 0.45) & (rad2 <= (tight_r ** 2))
+        weights = np.where(mask, sub, 0.0)
+        total = float(weights.sum())
+        if total <= 0.0:
+            break
+        cx_local = tx0 + float((xs * weights).sum() / total)
+        cy_local = ty0 + float((ys * weights).sum() / total)
+
+    return float(x0 + cx_local), float(y0 + cy_local)

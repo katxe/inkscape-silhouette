@@ -18,7 +18,7 @@ from silhouette import Calibration
 
 class ResetCalibration(EffectExtension):
     def add_arguments(self, pars):
-        pars.add_argument("--remove-markers", type=Boolean, dest="remove_markers", default=False,
+        pars.add_argument("--remove_markers", "--remove-markers", type=Boolean, dest="remove_markers", default=False,
                           help="Also remove the Calibration Markers layer")
 
     def effect(self):

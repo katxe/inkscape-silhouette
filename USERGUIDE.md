@@ -180,4 +180,28 @@ sendto_silhouette.py --connection_type=ble --bluetooth_identifier="LOCAL-IDENTIF
  - Path > Outset
  - Path > Dynamic Offset
 
+---
+
+## Scanner-Based Calibration (Print & Cut Without Regmarks)
+
+If your printer introduces skew, stretch, or rotation—or if glossy/holographic sticker paper prevents the Silhouette optical sensor from reading standard registration marks—you can use the built-in **Scanner-Based Calibration** extensions under `Extensions > Export`.
+
+All calibration data is stored non-destructively inside the SVG's `<metadata>` block. Your original artwork and cut layers are never modified, and cut paths are warped in memory when running **Send to Silhouette**.
+
+### One-Time Hardware Calibration Wizard
+Run `Extensions > Export > Hardware Calibration Wizard...` to calibrate your scanner's glass bezel crop and your Silhouette mat's mechanical origin offset together. Use the **`< Back`** / **`Next >`** buttons or the top step bar to jump directly to any stage:
+
+1. **Generate Pattern**: Click **Generate Test Pattern in SVG** to create 4 tiny corner bullseye markers, a printed target square, and a matching cut square. Optionally click **Save Printable SVG Copy...** to save a copy for printing.
+2. **Scanner Calibration**: Print the sheet on scrap cardstock, push it flush against your scanner's alignment arrow, and scan at 150–300 DPI. Click **Open Scanner Calibration UI...**, load the scan, use **Rotate 90 / 180** or **Mirror H / V** if needed, click **Auto-Detect** (or drag crosshairs onto the 4 bullseyes), and click **Save & Apply**.
+3. **Silhouette Cut**: Stick the cardstock into the top-left `(0, 0)` corner of your Silhouette cutting mat, select your mat, and click **Cut Test Square on Silhouette**. This automatically hides all non-cut layers in a temporary copy and cuts the test square.
+4. **Post-Cut Offset**: Pop out the cut square, place a dark backing sheet behind the cardstock, and scan it. Click **Open Post-Cut Calibration UI...** and load the scan (it automatically counter-rotates using the angle from the previous step, with `-1.0°`, `-0.1°`, `+0.1°`, `+1.0°`, `Rotate 90/180`, and `Mirror H/V` controls available). Align the **CYAN** square to the printed target edges and the **RED** square to the cut-out hole edges, then click **Save New System Offset**.
+
+### Everyday Sticker Workflow
+1. **Place Markers**: Run `Extensions > Export > Place Calibration Markers` to add 4 tiny `2.5 mm` corner bullseyes on a `Calibration Markers` layer (skipped automatically during cutting). You can drag, delete, or `Ctrl+D` duplicate markers to use any arbitrary number of points (minimum 3).
+2. **Print & Scan**: Print your sticker sheet and scan it at 150–300 DPI.
+3. **Calibrate**: Run `Extensions > Export > Calibrate from Scan...`, load the scan, click **Auto-Detect** (or drag crosshairs to fine-tune), verify the RMS error, and click **Save & Apply**.
+4. **Cut**: Place the sheet at `(0, 0)` on your cutting mat and run `Extensions > Export > Send to Silhouette` with **Regmarks unchecked**.
+5. **Reset Anytime**: Run `Extensions > Export > Reset Calibration` to clear calibration metadata cleanly without touching your artwork or cut layers.
+
+
  

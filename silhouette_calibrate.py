@@ -20,10 +20,10 @@ from silhouette import Calibration
 class CalibrationApp:
     """Interactive tkinter + PIL window for aligning SVG markers to a scanned image."""
 
-    def __init__(self, svg_markers, existing_calib, user_config):
+    def __init__(self, svg_markers, existing_calib, user_config, parent=None, cut_paths_mm=None):
         import tkinter as tk
         from tkinter import ttk, filedialog, messagebox
-        from PIL import Image, ImageTk
+        from PIL import Image, ImageTk, ImageOps
 
         self.tk = tk
         self.ttk = ttk
@@ -31,16 +31,18 @@ class CalibrationApp:
         self.messagebox = messagebox
         self.Image = Image
         self.ImageTk = ImageTk
+        self.ImageOps = ImageOps
 
         self.svg_markers = svg_markers
         self.existing_calib = existing_calib
         self.user_config = user_config
+        self.parent = parent
+        self.cut_paths_mm = cut_paths_mm or []
         self.result = None
 
         self.pil_image = None
         self.gray_array = None
         self.tk_photo = None
-        self.rotated_180 = False
         self.zoom = 1.0
         self.pan_x = 0.0
         self.pan_y = 0.0
@@ -50,9 +52,9 @@ class CalibrationApp:
         # Marker positions in image pixel coordinates
         self.scan_pts_px = []
 
-        self.root = tk.Tk()
+        self.root = tk.Toplevel(parent) if parent is not None else tk.Tk()
         self.root.title("Silhouette Scanner Calibration")
-        self.root.geometry("1100x800")
+        self.root.geometry("1120x800")
 
         self._build_ui()
 
@@ -63,10 +65,13 @@ class CalibrationApp:
         top = ttk.Frame(self.root, padding=6)
         top.pack(side=tk.TOP, fill=tk.X)
 
-        ttk.Button(top, text="Load / Replace Scan...", command=self._load_scan).pack(side=tk.LEFT, padx=4)
-        ttk.Button(top, text="Rotate 180", command=self._toggle_rotate).pack(side=tk.LEFT, padx=4)
-        ttk.Button(top, text="Auto-Detect Markers", command=self._autodetect).pack(side=tk.LEFT, padx=4)
-        ttk.Button(top, text="Fit View", command=self._fit_view).pack(side=tk.LEFT, padx=4)
+        ttk.Button(top, text="Load / Replace Scan...", command=self._load_scan).pack(side=tk.LEFT, padx=3)
+        ttk.Button(top, text="Rotate 90", command=self._rotate_90).pack(side=tk.LEFT, padx=3)
+        ttk.Button(top, text="Rotate 180", command=self._toggle_rotate).pack(side=tk.LEFT, padx=3)
+        ttk.Button(top, text="Mirror H", command=self._mirror_h).pack(side=tk.LEFT, padx=3)
+        ttk.Button(top, text="Mirror V", command=self._mirror_v).pack(side=tk.LEFT, padx=3)
+        ttk.Button(top, text="Auto-Detect", command=self._autodetect).pack(side=tk.LEFT, padx=3)
+        ttk.Button(top, text="Fit View", command=self._fit_view).pack(side=tk.LEFT, padx=3)
 
         ttk.Label(top, text="Model:").pack(side=tk.LEFT, padx=(12, 4))
         default_model = (self.existing_calib or {}).get("model", "homography")
@@ -79,7 +84,15 @@ class CalibrationApp:
             width=12,
         )
         model_cb.pack(side=tk.LEFT, padx=2)
-        model_cb.bind("<<ComboboxSelected>>", lambda _e: self._update_status())
+        model_cb.bind("<<ComboboxSelected>>", lambda _e: (self._redraw(), self._update_status()))
+
+        self.preview_cut_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            top,
+            text="Preview Cut Layer",
+            variable=self.preview_cut_var,
+            command=self._redraw,
+        ).pack(side=tk.LEFT, padx=(10, 4))
 
         # Canvas
         self.canvas = tk.Canvas(self.root, bg="#2b2b2b", highlightthickness=0)
@@ -107,8 +120,8 @@ class CalibrationApp:
         dpi_entry.pack(side=tk.LEFT, padx=2)
         dpi_entry.bind("<FocusOut>", lambda _e: self._update_status())
 
-        ox_default = (self.existing_calib or {}).get("offset_x_mm", self.user_config.get("offset_x_mm", 1.74))
-        oy_default = (self.existing_calib or {}).get("offset_y_mm", self.user_config.get("offset_y_mm", 2.43))
+        ox_default = self.user_config.get("offset_x_mm", (self.existing_calib or {}).get("offset_x_mm", 1.74))
+        oy_default = self.user_config.get("offset_y_mm", (self.existing_calib or {}).get("offset_y_mm", 2.43))
 
         ttk.Label(bottom, text="System Offset X (mm):").pack(side=tk.LEFT, padx=(10, 2))
         self.ox_var = tk.StringVar(value=f"{float(ox_default):.2f}")
@@ -171,15 +184,49 @@ class CalibrationApp:
         self._fit_view()
         self._update_status()
 
+    def _rotate_90(self):
+        if self.pil_image is None:
+            return
+        w, h = self.pil_image.size
+        self.pil_image = self.pil_image.transpose(self.Image.ROTATE_270)
+        self.gray_array = np.asarray(self.pil_image.convert("L"), dtype=float)
+        for pt in self.scan_pts_px:
+            old_x, old_y = pt[0], pt[1]
+            pt[0] = h - old_y
+            pt[1] = old_x
+        self._fit_view()
+        self._update_status()
+
     def _toggle_rotate(self):
         if self.pil_image is None:
             return
         self.pil_image = self.pil_image.rotate(180)
         self.gray_array = np.asarray(self.pil_image.convert("L"), dtype=float)
-        self.rotated_180 = not self.rotated_180
         w, h = self.pil_image.size
         for pt in self.scan_pts_px:
             pt[0] = w - pt[0]
+            pt[1] = h - pt[1]
+        self._redraw()
+        self._update_status()
+
+    def _mirror_h(self):
+        if self.pil_image is None:
+            return
+        self.pil_image = self.ImageOps.mirror(self.pil_image)
+        self.gray_array = np.asarray(self.pil_image.convert("L"), dtype=float)
+        w, _h = self.pil_image.size
+        for pt in self.scan_pts_px:
+            pt[0] = w - pt[0]
+        self._redraw()
+        self._update_status()
+
+    def _mirror_v(self):
+        if self.pil_image is None:
+            return
+        self.pil_image = self.ImageOps.flip(self.pil_image)
+        self.gray_array = np.asarray(self.pil_image.convert("L"), dtype=float)
+        _w, h = self.pil_image.size
+        for pt in self.scan_pts_px:
             pt[1] = h - pt[1]
         self._redraw()
         self._update_status()
@@ -189,8 +236,15 @@ class CalibrationApp:
             return
         dpi = self._get_dpi()
         search_r = max(25, int(round(dpi * 0.25)))
+        marker_d_px = max(6.0, 2.5 * dpi / 25.4)
         for pt in self.scan_pts_px:
-            cx, cy = Calibration.autodetect_marker_center(self.gray_array, pt[0], pt[1], search_radius_px=search_r)
+            cx, cy = Calibration.autodetect_marker_center(
+                self.gray_array,
+                pt[0],
+                pt[1],
+                search_radius_px=search_r,
+                marker_diameter_px=marker_d_px,
+            )
             pt[0], pt[1] = cx, cy
         self._redraw()
         self._update_status()
@@ -284,6 +338,24 @@ class CalibrationApp:
             dx, dy = self._img_to_canvas(x0, y0)
             self.canvas.create_image(dx, dy, anchor="nw", image=self.tk_photo)
 
+        # Draw live warped cut-layer overlay on top of the scanned image
+        if self.preview_cut_var.get() and self.cut_paths_mm and len(self.scan_pts_px) >= 3:
+            try:
+                pairs = self._build_point_pairs()
+                model_name, model_data = Calibration.build_transform(pairs, model=self.model_var.get())
+                px_per_mm = self._get_dpi() / 25.4
+                for path in self.cut_paths_mm:
+                    arr = np.asarray(path, dtype=float)
+                    mapped_mm = Calibration.evaluate_transform(arr, model_name, model_data, 0.0, 0.0)
+                    coords = []
+                    for sx_mm, sy_mm in mapped_mm:
+                        cx, cy = self._img_to_canvas(sx_mm * px_per_mm, sy_mm * px_per_mm)
+                        coords.extend((cx, cy))
+                    if len(coords) >= 4:
+                        self.canvas.create_line(*coords, fill="#00ff44", width=2)
+            except Exception:
+                pass
+
         # Draw numbered crosshairs
         for m, (ix, iy) in zip(self.svg_markers, self.scan_pts_px):
             cx, cy = self._img_to_canvas(ix, iy)
@@ -347,7 +419,12 @@ class CalibrationApp:
         self.root.destroy()
 
     def run(self):
-        self.root.mainloop()
+        if self.parent is not None:
+            self.root.transient(self.parent)
+            self.root.grab_set()
+            self.parent.wait_window(self.root)
+        else:
+            self.root.mainloop()
         return self.result
 
 
@@ -363,8 +440,9 @@ class CalibrateFromScan(EffectExtension):
 
         existing = Calibration.load_calibration(self.svg)
         user_cfg = Calibration.load_user_config()
+        cut_paths_mm = Calibration.extract_preview_cut_paths_mm(self.svg)
 
-        app = CalibrationApp(markers, existing, user_cfg)
+        app = CalibrationApp(markers, existing, user_cfg, cut_paths_mm=cut_paths_mm)
         result = app.run()
         if result is None:
             return
