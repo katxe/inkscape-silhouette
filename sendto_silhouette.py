@@ -306,6 +306,9 @@ class SendtoSilhouette(EffectExtension):
         pars.add_argument("--preview",
                 dest = "preview", type = Boolean, default = True,
                 help="show cut pattern graphically before sending")
+        pars.add_argument("--use_calibration", "--use-calibration",
+                dest = "use_calibration", type = Boolean, default = True,
+                help="Apply saved scanner calibration metadata if present in SVG")
         pars.add_argument("-V", "--version",
                 dest = "version", action = "version", version=__version__,
                 help="print the version number and exit")
@@ -673,7 +676,7 @@ class SendtoSilhouette(EffectExtension):
                     my_transform = parent_transform @ node.transform
 
             if isinstance(node, Group):
-                if node.get("id") == silhouette.Calibration.CALIB_LAYER_ID:
+                if self.options.use_calibration and node.get("id") == silhouette.Calibration.CALIB_LAYER_ID:
                     self.report("layer 'Calibration Markers' is a calibration layer - skipped", 'log')
                     continue
                 # Check if layer name is referring to cutting mat, registration mark or print layer
@@ -684,7 +687,7 @@ class SendtoSilhouette(EffectExtension):
                     if "regmark" in node.label.lower():
                         self.report(f"layer '{node.label}' is a registration mark layer - skipped", 'log')
                         continue
-                    if "calibration" in node.label.lower():
+                    if self.options.use_calibration and "calibration" in node.label.lower():
                         self.report(f"layer '{node.label}' is a calibration layer - skipped", 'log')
                         continue
                     if "print" in node.label.lower():
@@ -1132,7 +1135,7 @@ class SendtoSilhouette(EffectExtension):
             self.autoblade=True
 
         # Apply active scanner calibration warp in memory without modifying SVG
-        calib = silhouette.Calibration.load_calibration(self.svg)
+        calib = silhouette.Calibration.load_calibration(self.svg) if self.options.use_calibration else None
         if calib is not None and self.paths:
             self.paths = silhouette.Calibration.warp_paths(self.paths, calib)
             self.report(

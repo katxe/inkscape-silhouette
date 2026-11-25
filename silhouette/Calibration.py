@@ -114,8 +114,8 @@ def create_marker_group(svg, marker_id, cx_mm, cy_mm, diameter_mm=2.5):
     group.add(cross)
 
     label = TextElement()
-    label.set("x", str(cx + mm_to_svg_units(svg, diameter_mm * 2.2)))
-    label.set("y", str(cy - mm_to_svg_units(svg, diameter_mm * 1.4)))
+    label.set("x", str(cx + mm_to_svg_units(svg, diameter_mm * 0.9)))
+    label.set("y", str(cy - mm_to_svg_units(svg, diameter_mm * 0.4)))
     label.set("style", f"font-size:{mm_to_svg_units(svg, 1.8)}px;fill:#000000;font-family:sans-serif;")
     label.text = f"#{marker_id}"
     group.add(label)

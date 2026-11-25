@@ -64,6 +64,7 @@
       <label indent="2">Use pressure=0, speed=0, depth=-1 to take the media defaults. Pressure values of 19 or more could trigger the trackenhancing feature, which means a movement along the full media height before start. Beware.</label>
       <param name="preview" type="bool" gui-text="Preview: show cut pattern before sending">true</param>
       <label indent="2">Note that for Preview to operate, the `matplotlib' package for Python must be installed.</label>
+      <param name="use_calibration" type="bool" gui-text="Use scanner calibration (if saved in SVG)">true</param>
     </page>
     <page name='opt' gui-text='Options'>
       <param name="dashes" type="bool" gui-text="Convert to dashes">false</param> <label indent="2">Convert paths with dashed strokes to separate subpaths for perforated cuts.</label>
