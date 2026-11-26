@@ -96,6 +96,7 @@ def create_marker_group(svg, marker_id, cx_mm, cy_mm, diameter_mm=2.5):
     group.set("id", f"calib-marker-{marker_id}")
     group.set("data-calib-marker", "true")
     group.set("data-calib-id", str(marker_id))
+    group.set("data-calib-diameter-mm", f"{float(diameter_mm):.4f}")
 
     ring = Circle(cx=str(cx), cy=str(cy), r=str(r_outer))
     ring.set("style", f"fill:none;stroke:#000000;stroke-width:{stroke_w};")
@@ -185,13 +186,26 @@ def get_svg_markers(svg):
         cx_mm = svg_units_to_mm(svg, bbox.center_x)
         cy_mm = svg_units_to_mm(svg, bbox.center_y)
 
+        diameter_mm = 2.5
+        raw_diam = node.get("data-calib-diameter-mm")
+        if raw_diam:
+            try:
+                diameter_mm = float(raw_diam)
+            except ValueError:
+                pass
+        elif target_geom is not None and target_geom.get("r") is not None:
+            try:
+                diameter_mm = 2.0 * svg_units_to_mm(svg, float(target_geom.get("r")))
+            except ValueError:
+                pass
+
         raw_id = node.get("data-calib-id") or ""
         if not raw_id or raw_id in seen_ids:
             while str(auto_idx) in seen_ids:
                 auto_idx += 1
             raw_id = str(auto_idx)
         seen_ids.add(raw_id)
-        markers.append({"id": raw_id, "svg_x": cx_mm, "svg_y": cy_mm})
+        markers.append({"id": raw_id, "svg_x": cx_mm, "svg_y": cy_mm, "diameter_mm": diameter_mm})
 
     def _sort_key(item):
         try:

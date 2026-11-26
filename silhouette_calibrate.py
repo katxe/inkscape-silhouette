@@ -94,6 +94,14 @@ class CalibrationApp:
             command=self._redraw,
         ).pack(side=tk.LEFT, padx=(10, 4))
 
+        self.scale_markers_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            top,
+            text="Scale Markers with Zoom",
+            variable=self.scale_markers_var,
+            command=self._redraw,
+        ).pack(side=tk.LEFT, padx=(6, 4))
+
         # Canvas
         self.canvas = tk.Canvas(self.root, bg="#2b2b2b", highlightthickness=0)
         self.canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
@@ -236,8 +244,8 @@ class CalibrationApp:
             return
         dpi = self._get_dpi()
         search_r = max(25, int(round(dpi * 0.25)))
-        marker_d_px = max(6.0, 2.5 * dpi / 25.4)
-        for pt in self.scan_pts_px:
+        for m, pt in zip(self.svg_markers, self.scan_pts_px):
+            marker_d_px = max(6.0, m.get("diameter_mm", 2.5) * dpi / 25.4)
             cx, cy = Calibration.autodetect_marker_center(
                 self.gray_array,
                 pt[0],
@@ -357,9 +365,11 @@ class CalibrationApp:
                 pass
 
         # Draw numbered crosshairs
+        px_per_mm = self._get_dpi() / 25.4
+        scale_with_zoom = self.scale_markers_var.get()
         for m, (ix, iy) in zip(self.svg_markers, self.scan_pts_px):
             cx, cy = self._img_to_canvas(ix, iy)
-            r = 12
+            r = max(4.0, (m.get("diameter_mm", 2.5) * 0.5) * px_per_mm * self.zoom) if scale_with_zoom else 12.0
             self.canvas.create_oval(cx - r, cy - r, cx + r, cy + r, outline="#00ffff", width=2)
             self.canvas.create_line(cx - r - 6, cy, cx + r + 6, cy, fill="#ff00ff", width=1)
             self.canvas.create_line(cx, cy - r - 6, cx, cy + r + 6, fill="#ff00ff", width=1)

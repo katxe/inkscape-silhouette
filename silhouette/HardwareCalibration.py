@@ -13,8 +13,8 @@ HW_CUT_LAYER_LABEL = "Hardware Test Cut Squares"
 
 
 def generate_test_pattern(svg, margin_mm=6.5, square_size_mm=15.0, marker_diameter_mm=2.5):
-    """Populate the SVG with corner bullseyes, printed target outlines, and cut squares."""
-    from inkex import Layer, Rectangle, PathElement
+    """Populate the SVG with corner bullseyes, a larger printed target circle, and a smaller cut circle."""
+    from inkex import Layer, Circle, PathElement
 
     width_mm, height_mm = Calibration.get_document_size_mm(svg)
 
@@ -43,22 +43,22 @@ def generate_test_pattern(svg, margin_mm=6.5, square_size_mm=15.0, marker_diamet
 
     cx_mm = width_mm / 2.0
     cy_mm = height_mm / 2.0
-    half_mm = square_size_mm / 2.0
+    cut_r_mm = square_size_mm / 2.0
+    print_r_mm = cut_r_mm + 3.0
 
-    x_uu = Calibration.mm_to_svg_units(svg, cx_mm - half_mm)
-    y_uu = Calibration.mm_to_svg_units(svg, cy_mm - half_mm)
-    size_uu = Calibration.mm_to_svg_units(svg, square_size_mm)
     cx_uu = Calibration.mm_to_svg_units(svg, cx_mm)
     cy_uu = Calibration.mm_to_svg_units(svg, cy_mm)
-    cross_ext = Calibration.mm_to_svg_units(svg, half_mm + 6.0)
+    cut_r_uu = Calibration.mm_to_svg_units(svg, cut_r_mm)
+    print_r_uu = Calibration.mm_to_svg_units(svg, print_r_mm)
+    cross_ext = Calibration.mm_to_svg_units(svg, print_r_mm + 5.0)
     stroke_print = Calibration.mm_to_svg_units(svg, 0.35)
     stroke_cut = Calibration.mm_to_svg_units(svg, 0.15)
 
-    # Printed target outline and crosshair
-    target_box = Rectangle(x=str(x_uu), y=str(y_uu), width=str(size_uu), height=str(size_uu))
-    target_box.set("id", "hw-print-target-box")
-    target_box.set("style", f"fill:none;stroke:#000000;stroke-width:{stroke_print};")
-    print_layer.add(target_box)
+    # Larger printed target circle and crosshair (stays intact around the smaller cut hole)
+    target_circle = Circle(cx=str(cx_uu), cy=str(cy_uu), r=str(print_r_uu))
+    target_circle.set("id", "hw-print-target-circle")
+    target_circle.set("style", f"fill:none;stroke:#000000;stroke-width:{stroke_print};")
+    print_layer.add(target_circle)
 
     target_cross = PathElement()
     target_cross.set("id", "hw-print-target-cross")
@@ -69,11 +69,11 @@ def generate_test_pattern(svg, margin_mm=6.5, square_size_mm=15.0, marker_diamet
     target_cross.set("style", f"fill:none;stroke:#000000;stroke-width:{stroke_print * 0.7};")
     print_layer.add(target_cross)
 
-    # Matching cut-out square on the cut layer
-    cut_box = Rectangle(x=str(x_uu), y=str(y_uu), width=str(size_uu), height=str(size_uu))
-    cut_box.set("id", "hw-cut-target-box")
-    cut_box.set("style", f"fill:none;stroke:#ff0000;stroke-width:{stroke_cut};")
-    cut_layer.add(cut_box)
+    # Smaller concentric cut-out circle on the cut layer
+    cut_circle = Circle(cx=str(cx_uu), cy=str(cy_uu), r=str(cut_r_uu))
+    cut_circle.set("id", "hw-cut-target-circle")
+    cut_circle.set("style", f"fill:none;stroke:#ff0000;stroke-width:{stroke_cut};")
+    cut_layer.add(cut_circle)
 
     return {"center_x_mm": cx_mm, "center_y_mm": cy_mm, "square_size_mm": square_size_mm}
 

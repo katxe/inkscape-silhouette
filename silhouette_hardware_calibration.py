@@ -85,9 +85,17 @@ class HardwareOffsetMeasureApp:
         self.angle_var = tk.StringVar(value=f"Rot: {self.rotation_deg:+.2f} deg")
         ttk.Label(top, textvariable=self.angle_var).pack(side=tk.LEFT, padx=8)
 
+        self.scale_markers_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            top,
+            text="Scale Markers with Zoom",
+            variable=self.scale_markers_var,
+            command=self._redraw,
+        ).pack(side=tk.LEFT, padx=6)
+
         hint = ttk.Label(
             self.root,
-            text="Align the CYAN square to the PRINTED target edges, and the RED square to the CUT-OUT hole edges. Scroll to zoom, right-drag to pan.",
+            text="Align the CYAN circle to the outer PRINTED circle, and the RED circle to the inner CUT-OUT hole. Scroll to zoom, right-drag to pan.",
             padding=(8, 2),
         )
         hint.pack(side=tk.TOP, fill=tk.X)
@@ -280,17 +288,21 @@ class HardwareOffsetMeasureApp:
             dx, dy = self._img_to_canvas(x0, y0)
             self.canvas.create_image(dx, dy, anchor="nw", image=self.tk_photo)
 
-        # Draw exact-scale square alignment boxes matching the physical target square size
+        # Draw concentric circle alignment markers (outer printed circle + inner cut-out circle)
         dpi = self._get_dpi()
-        half_side_canvas = (self.square_size_mm * dpi / 25.4) * 0.5 * self.zoom
+        cut_r_canvas = (self.square_size_mm * dpi / 25.4) * 0.5 * self.zoom
+        print_r_canvas = ((self.square_size_mm + 6.0) * dpi / 25.4) * 0.5 * self.zoom
+        if self.scale_markers_var.get():
+            radii = [max(8.0, print_r_canvas), max(8.0, cut_r_canvas)]
+        else:
+            radii = [22.0, 14.0]
         specs = [("#00ffff", "PRINTED"), ("#ff3333", "CUT HOLE")]
-        for (color, label), (ix, iy) in zip(specs, self.points_px):
+        for (color, label), (ix, iy), rad in zip(specs, self.points_px, radii):
             cx, cy = self._img_to_canvas(ix, iy)
-            hs = max(8.0, half_side_canvas)
-            self.canvas.create_rectangle(cx - hs, cy - hs, cx + hs, cy + hs, outline=color, width=2)
+            self.canvas.create_oval(cx - rad, cy - rad, cx + rad, cy + rad, outline=color, width=2)
             self.canvas.create_line(cx - 8, cy, cx + 8, cy, fill=color, width=1)
             self.canvas.create_line(cx, cy - 8, cx, cy + 8, fill=color, width=1)
-            self.canvas.create_text(cx + hs + 6, cy - hs, text=label, fill=color, anchor="nw", font=("Arial", 10, "bold"))
+            self.canvas.create_text(cx + rad + 6, cy - rad, text=label, fill=color, anchor="nw", font=("Arial", 10, "bold"))
 
     def _compute_offsets(self):
         dpi = self._get_dpi()
